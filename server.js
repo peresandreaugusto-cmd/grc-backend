@@ -107,15 +107,63 @@ function filterSheetByAdSet(sheet, adset, maxRows = 80) {
   return { headers, rows };
 }
 
+// ============================================================
+// WEB SEARCH (DuckDuckGo Instant Answer) — sem key
+// ============================================================
+async function webSearchDDG(query, max = 6) {
+  const q = String(query || '').trim();
+  if (!q) return [];
+
+  const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&no_redirect=1&no_html=1`;
+  const r = await fetch(url);
+  const j = await r.json();
+
+  const out = [];
+  if (j.AbstractText) {
+    out.push({
+      title: j.Heading || 'Resumo',
+      snippet: j.AbstractText,
+      url: j.AbstractURL || ''
+    });
+  }
+
+  const rel = Array.isArray(j.RelatedTopics) ? j.RelatedTopics : [];
+  for (const item of rel) {
+    if (out.length >= max) break;
+
+    if (item && item.Text && item.FirstURL) {
+      out.push({
+        title: item.Text.split(' - ')[0].slice(0, 80),
+        snippet: item.Text,
+        url: item.FirstURL
+      });
+    } else if (item && Array.isArray(item.Topics)) {
+      for (const t of item.Topics) {
+        if (out.length >= max) break;
+        if (t && t.Text && t.FirstURL) {
+          out.push({
+            title: t.Text.split(' - ')[0].slice(0, 80),
+            snippet: t.Text,
+            url: t.FirstURL
+          });
+        }
+      }
+    }
+  }
+
+  return out.slice(0, max);
+}
+
 async function callClaude({ section, question, context, datasets }) {
   const key = process.env.ANTHROPIC_API_KEY;
-  const model = process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-latest';
+  const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
   if (!key) throw new Error('ANTHROPIC_API_KEY não configurada.');
 
   const system =
 `Você é um analista de delivery de mídia.
 Responda de forma objetiva e baseada nos datasets.
-Se faltar dado, diga qual coluna/aba está faltando.`;
+Se faltar dado, diga qual coluna/aba está faltando.
+Se houver __web, use como evidência e cite as URLs.`;
 
   const user =
 `SECTION: ${section}
@@ -156,6 +204,13 @@ ${JSON.stringify(datasets, null, 2)}
 
 /**
  * POST /api/ia
+ * JSON:
+ * {
+ *   section, question,
+ *   context: { adset, tokens, partner, formato, statusOper, ... },
+ *   files: { plataformaFileId?, iasFileId?, planoFileId? },
+ *   webSearch?: true|false
+ * }
  */
 app.post('/api/ia', async (req, res) => {
   try {
@@ -166,6 +221,12 @@ app.post('/api/ia', async (req, res) => {
     if (!adset) return res.status(400).send('context.adset é obrigatório.');
 
     const datasets = {};
+
+    // Web search (opcional)
+    if (req.body?.webSearch) {
+      const q = `${question} ${context?.partner || ''} ${context?.formato || ''} ${context?.adset || ''}`.trim();
+      datasets.__web = { query: q, results: await webSearchDDG(q, 6) };
+    }
 
     for (const [k, fileId] of Object.entries(files || {})) {
       const meta = FILES.get(String(fileId || ''));
