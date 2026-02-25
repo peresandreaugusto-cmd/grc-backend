@@ -10,7 +10,7 @@ const app = express();
 app.use(express.json({ limit: '5mb' }));
 
 const PORT = Number(process.env.PORT || 3000);
-const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
+const UPLOAD_DIR = path.join('/tmp', 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const upload = multer({
