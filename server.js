@@ -10,7 +10,7 @@ const app = express();
 app.use(express.json({ limit: '5mb' }));
 
 // CORS simples (para permitir o HTML chamar o backend)
-aplicativo.usar((req, res, next) => {
+app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -19,6 +19,8 @@ aplicativo.usar((req, res, next) => {
 });
 
 const PORT = Number(process.env.PORT || 3000);
+
+// Vercel: use diretório gravável
 const UPLOAD_DIR = path.join('/tmp', 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
@@ -108,7 +110,7 @@ function filterSheetByAdSet(sheet, adset, maxRows = 80) {
 async function callClaude({ section, question, context, datasets }) {
   const key = process.env.ANTHROPIC_API_KEY;
   const model = process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-latest';
-  if (!key) throw new Error('ANTHROPIC_API_KEY não configurada (veja .env.example).');
+  if (!key) throw new Error('ANTHROPIC_API_KEY não configurada.');
 
   const system =
 `Você é um analista de delivery de mídia.
@@ -154,13 +156,6 @@ ${JSON.stringify(datasets, null, 2)}
 
 /**
  * POST /api/ia
- * JSON:
- * {
- *   section: "formato"|"compra"|"plano"|"ias"|"evid"|...,
- *   question: "...",
- *   context: { adset, tokens, partner, formato, statusOper, desvios? },
- *   files: { plataformaFileId?, iasFileId?, planoFileId? }
- * }
  */
 app.post('/api/ia', async (req, res) => {
   try {
