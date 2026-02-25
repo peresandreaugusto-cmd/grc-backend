@@ -108,50 +108,67 @@ function filterSheetByAdSet(sheet, adset, maxRows = 80) {
 }
 
 // ============================================================
-// WEB SEARCH (DuckDuckGo Instant Answer) — sem key
+// SAFE JSON — nunca quebra por resposta vazia / não-JSON
+// ============================================================
+async function safeJson(res) {
+  const txt = await res.text();
+  if (!txt) return { __empty: true };
+  try { return JSON.parse(txt); }
+  catch { return { __raw: txt }; }
+}
+
+// ============================================================
+// WEB SEARCH (DuckDuckGo Instant Answer) — sem key (best-effort)
 // ============================================================
 async function webSearchDDG(query, max = 6) {
   const q = String(query || '').trim();
   if (!q) return [];
 
-  const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&no_redirect=1&no_html=1`;
-  const r = await fetch(url);
-  const j = await r.json();
+  try {
+    const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&no_redirect=1&no_html=1`;
+    const r = await fetch(url);
+    const j = await safeJson(r);
 
-  const out = [];
-  if (j.AbstractText) {
-    out.push({
-      title: j.Heading || 'Resumo',
-      snippet: j.AbstractText,
-      url: j.AbstractURL || ''
-    });
-  }
+    // se veio vazio / não-JSON, não derruba o backend
+    if (j.__empty || j.__raw) return [];
 
-  const rel = Array.isArray(j.RelatedTopics) ? j.RelatedTopics : [];
-  for (const item of rel) {
-    if (out.length >= max) break;
-
-    if (item && item.Text && item.FirstURL) {
+    const out = [];
+    if (j.AbstractText) {
       out.push({
-        title: item.Text.split(' - ')[0].slice(0, 80),
-        snippet: item.Text,
-        url: item.FirstURL
+        title: j.Heading || 'Resumo',
+        snippet: j.AbstractText,
+        url: j.AbstractURL || ''
       });
-    } else if (item && Array.isArray(item.Topics)) {
-      for (const t of item.Topics) {
-        if (out.length >= max) break;
-        if (t && t.Text && t.FirstURL) {
-          out.push({
-            title: t.Text.split(' - ')[0].slice(0, 80),
-            snippet: t.Text,
-            url: t.FirstURL
-          });
+    }
+
+    const rel = Array.isArray(j.RelatedTopics) ? j.RelatedTopics : [];
+    for (const item of rel) {
+      if (out.length >= max) break;
+
+      if (item && item.Text && item.FirstURL) {
+        out.push({
+          title: item.Text.split(' - ')[0].slice(0, 80),
+          snippet: item.Text,
+          url: item.FirstURL
+        });
+      } else if (item && Array.isArray(item.Topics)) {
+        for (const t of item.Topics) {
+          if (out.length >= max) break;
+          if (t && t.Text && t.FirstURL) {
+            out.push({
+              title: t.Text.split(' - ')[0].slice(0, 80),
+              snippet: t.Text,
+              url: t.FirstURL
+            });
+          }
         }
       }
     }
-  }
 
-  return out.slice(0, max);
+    return out.slice(0, max);
+  } catch {
+    return [];
+  }
 }
 
 async function callClaude({ section, question, context, datasets }) {
@@ -192,8 +209,8 @@ ${JSON.stringify(datasets, null, 2)}
     })
   });
 
-  const data = await resp.json();
-  if (!resp.ok) throw new Error(JSON.stringify(data));
+  const data = await safeJson(resp);
+  if (!resp.ok) throw new Error(data.__raw ? data.__raw : JSON.stringify(data));
 
   const answer =
     data?.content?.map(c => c?.text).filter(Boolean).join('\n').trim()
@@ -259,3 +276,6 @@ app.post('/api/ia', async (req, res) => {
 app.get('/health', (_, res) => res.json({ ok: true }));
 
 app.listen(PORT, () => console.log(`GRC backend rodando em http://localhost:${PORT}`));
+
+ 
+    
